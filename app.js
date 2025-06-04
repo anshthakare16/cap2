@@ -633,6 +633,215 @@ async function displayRemainingStudents() {
     container.innerHTML = html;
 }
 
+// ====== MENTOR PANEL FUNCTIONS ======
+async function handleMentorSelection() {
+    const mentorIndex = document.getElementById('mentor-selector').value;
+    const mentorDisplay = document.getElementById('mentor-teams-display');
+    
+    if (!mentorIndex) {
+        mentorDisplay.classList.add('hidden');
+        return;
+    }
+    
+    const mentorName = appData.mentors[mentorIndex];
+    document.getElementById('mentor-name-display').textContent = mentorName;
+    
+    await displayMentorPreferences(parseInt(mentorIndex));
+    mentorDisplay.classList.remove('hidden');
+}
+
+async function displayMentorPreferences(mentorIndex) {
+    const teams = await getTeams();
+    const preferencesContainer = document.getElementById('preference-stats');
+    const selectionContainer = document.getElementById('team-selection');
+    
+    // Group teams by preference level for this mentor
+    const preferences = {
+        first: [],
+        second: [],
+        third: [],
+        fourth: []
+    };
+    
+    teams.forEach(team => {
+        if (team.mentor_preferences) {
+            const mentorPos = team.mentor_preferences.indexOf(mentorIndex);
+            if (mentorPos === 0) preferences.first.push(team);
+            else if (mentorPos === 1) preferences.second.push(team);
+            else if (mentorPos === 2) preferences.third.push(team);
+            else if (mentorPos === 3) preferences.fourth.push(team);
+        }
+    });
+    
+    // Display preference statistics
+    preferencesContainer.innerHTML = `
+        <div class="preference-grid">
+            <div class="preference-card first-choice">
+                <h4>1st Choice (${preferences.first.length} teams)</h4>
+                ${preferences.first.map(team => `
+                    <div class="team-preference-item">
+                        <strong>${team.name}</strong>
+                        <p>Leader: ${getStudentById(team.leader)?.name}</p>
+                        <p>Members: ${team.members.length}</p>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div class="preference-card second-choice">
+                <h4>2nd Choice (${preferences.second.length} teams)</h4>
+                ${preferences.second.map(team => `
+                    <div class="team-preference-item">
+                        <strong>${team.name}</strong>
+                        <p>Leader: ${getStudentById(team.leader)?.name}</p>
+                        <p>Members: ${team.members.length}</p>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div class="preference-card third-choice">
+                <h4>3rd Choice (${preferences.third.length} teams)</h4>
+                ${preferences.third.map(team => `
+                    <div class="team-preference-item">
+                        <strong>${team.name}</strong>
+                        <p>Leader: ${getStudentById(team.leader)?.name}</p>
+                        <p>Members: ${team.members.length}</p>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div class="preference-card fourth-choice">
+                <h4>4th Choice (${preferences.fourth.length} teams)</h4>
+                ${preferences.fourth.map(team => `
+                    <div class="team-preference-item">
+                        <strong>${team.name}</strong>
+                        <p>Leader: ${getStudentById(team.leader)?.name}</p>
+                        <p>Members: ${team.members.length}</p>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+    
+    // Display team selection interface
+    const allTeamsForMentor = [...preferences.first, ...preferences.second, ...preferences.third, ...preferences.fourth];
+    const selectedTeams = selectedMentorTeams[mentorIndex] || [];
+    
+    selectionContainer.innerHTML = `
+        <div class="team-selection-section">
+            <h4>Select Your Teams (Maximum 4)</h4>
+            <p class="selection-info">Selected: ${selectedTeams.length}/4 teams</p>
+            
+            <div class="teams-selection-grid">
+                ${allTeamsForMentor.map(team => {
+                    const isSelected = selectedTeams.includes(team.team_id);
+                    const preferenceLevel = team.mentor_preferences.indexOf(mentorIndex) + 1;
+                    
+                    return `
+                        <div class="team-selection-card ${isSelected ? 'selected' : ''}">
+                            <div class="team-selection-header">
+                                <h5>${team.name}</h5>
+                                <span class="preference-badge preference-${preferenceLevel}">
+                                    ${preferenceLevel}${getOrdinalSuffix(preferenceLevel)} Choice
+                                </span>
+                            </div>
+                            <div class="team-selection-details">
+                                <p><strong>Leader:</strong> ${getStudentById(team.leader)?.name}</p>
+                                <p><strong>Members:</strong> ${team.members.length}</p>
+                                <p><strong>Departments:</strong> ${getDepartmentDistribution(team.members)}</p>
+                            </div>
+                            <div class="team-selection-actions">
+                                ${isSelected ? 
+                                    `<button class="btn btn--danger btn--sm" onclick="deselectTeam(${mentorIndex}, '${team.team_id}')">
+                                        Remove Team
+                                    </button>` :
+                                    `<button class="btn btn--primary btn--sm" onclick="selectTeam(${mentorIndex}, '${team.team_id}')" 
+                                        ${selectedTeams.length >= 4 ? 'disabled' : ''}>
+                                        Select Team
+                                    </button>`
+                                }
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function selectTeam(mentorIndex, teamId) {
+    if (!selectedMentorTeams[mentorIndex]) {
+        selectedMentorTeams[mentorIndex] = [];
+    }
+    
+    if (selectedMentorTeams[mentorIndex].length >= 4) {
+        alert('You can only select maximum 4 teams.');
+        return;
+    }
+    
+    if (!selectedMentorTeams[mentorIndex].includes(teamId)) {
+        selectedMentorTeams[mentorIndex].push(teamId);
+        displayMentorPreferences(mentorIndex);
+        
+        // Save to localStorage for persistence
+        localStorage.setItem('mentorSelections', JSON.stringify(selectedMentorTeams));
+        
+        alert('Team selected successfully!');
+    }
+}
+
+function deselectTeam(mentorIndex, teamId) {
+    if (selectedMentorTeams[mentorIndex]) {
+        selectedMentorTeams[mentorIndex] = selectedMentorTeams[mentorIndex].filter(id => id !== teamId);
+        displayMentorPreferences(mentorIndex);
+        
+        // Save to localStorage for persistence
+        localStorage.setItem('mentorSelections', JSON.stringify(selectedMentorTeams));
+        
+        alert('Team removed successfully!');
+    }
+}
+
+function getOrdinalSuffix(num) {
+    const suffixes = ['th', 'st', 'nd', 'rd'];
+    const v = num % 100;
+    return suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0];
+}
+
+async function exportMentorSelectionsToCSV() {
+    const teams = await getTeams();
+    
+    if (Object.keys(selectedMentorTeams).length === 0) {
+        alert('No mentor selections to export.');
+        return;
+    }
+    
+    const headers = ['Mentor Name', 'Team Name', 'Team Leader', 'Team Members', 'Selection Status'];
+    
+    const csvContent = [
+        headers.join(','),
+        ...Object.entries(selectedMentorTeams).flatMap(([mentorIndex, teamIds]) => {
+            const mentorName = appData.mentors[mentorIndex];
+            return teamIds.map(teamId => {
+                const team = teams.find(t => t.team_id === teamId);
+                if (!team) return '';
+                
+                const leader = getStudentById(team.leader);
+                const members = team.members.map(id => getStudentById(id)?.name).join('; ');
+                
+                return [
+                    `"${mentorName}"`,
+                    `"${team.name}"`,
+                    `"${leader?.name}"`,
+                    `"${members}"`,
+                    `"Selected"`
+                ].join(',');
+            });
+        }).filter(row => row)
+    ].join('\n');
+    
+    downloadCSV(csvContent, 'mentor_selections.csv');
+}
+
 // ====== EXPORT FUNCTIONS ======
 async function exportTeamsToCSV() {
     const teams = await getTeams();
@@ -748,6 +957,18 @@ function initializeApp() {
             });
         }
     }
+    
+    // Mentor selector event listener
+    const mentorSelector = document.getElementById('mentor-selector');
+    if (mentorSelector) {
+        mentorSelector.addEventListener('change', handleMentorSelection);
+    }
+    
+    // Load saved mentor selections
+    const savedSelections = localStorage.getItem('mentorSelections');
+    if (savedSelections) {
+        selectedMentorTeams = JSON.parse(savedSelections);
+    }
 }
 
 // ====== START APPLICATION ======
@@ -762,3 +983,7 @@ window.handleAdminLogin = handleAdminLogin;
 window.logout = logout;
 window.deleteTeam = deleteTeam;
 window.exportTeamsToCSV = exportTeamsToCSV;
+window.handleMentorSelection = handleMentorSelection;
+window.selectTeam = selectTeam;
+window.deselectTeam = deselectTeam;
+window.exportMentorSelectionsToCSV = exportMentorSelectionsToCSV;
