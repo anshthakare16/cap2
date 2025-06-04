@@ -1,3 +1,11 @@
+// ====== SUPABASE CONFIGURATION ======
+const supabaseUrl = 'https://pxmjhydcpiislenpjhbp.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB4bWpoeWRjcGlpc2xlbnBqaGJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkwMjg4OTksImV4cCI6MjA2NDYwNDg5OX0.MIpHyAd8ikFcCuS6JC_RbNmb7qNbXyJrB7Gp2ReyeHw';
+
+// Initialize Supabase client
+const { createClient } = supabase;
+const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+
 // ====== APPLICATION DATA ======
 const appData = {
     students: {
@@ -96,6 +104,70 @@ let currentTeam = {};
 let isLoggedIn = false;
 let selectedMentorTeams = {};
 
+// ====== SUPABASE DATA FUNCTIONS ======
+async function getTeams() {
+    try {
+        const { data, error } = await supabaseClient
+            .from('teams')
+            .select('*')
+            .order('registration_date', { ascending: false });
+        
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('Error fetching teams:', error);
+        return [];
+    }
+}
+
+async function saveTeam(team) {
+    try {
+        const { data, error } = await supabaseClient
+            .from('teams')
+            .insert([team]);
+        
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error saving team:', error);
+        alert('Error saving team: ' + error.message);
+        return false;
+    }
+}
+
+async function deleteTeam(teamId) {
+    if (confirm('Are you sure you want to delete this team? This action cannot be undone.')) {
+        try {
+            const { error } = await supabaseClient
+                .from('teams')
+                .delete()
+                .eq('team_id', teamId);
+            
+            if (error) throw error;
+            
+            await displayTeamsManagement();
+            await displayTeams();
+            await displayRemainingStudents();
+            alert('Team deleted successfully!');
+        } catch (error) {
+            console.error('Error deleting team:', error);
+            alert('Error deleting team: ' + error.message);
+        }
+    }
+}
+
+async function getRegisteredStudents() {
+    const teams = await getTeams();
+    const registered = new Set();
+    teams.forEach(team => {
+        registered.add(team.leader);
+        if (team.members) {
+            team.members.forEach(member => registered.add(member));
+        }
+    });
+    return registered;
+}
+
 // ====== UTILITY FUNCTIONS ======
 function showPage(pageId) {
     document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
@@ -133,20 +205,6 @@ function hideError(elementId) {
     }
 }
 
-function getAllStudents() {
-    const allStudents = [];
-    Object.keys(appData.students).forEach(department => {
-        appData.students[department].forEach((name, index) => {
-            allStudents.push({
-                id: `${department}_${index}`,
-                name: name,
-                department: department
-            });
-        });
-    });
-    return allStudents;
-}
-
 function getStudentById(id) {
     if (!id) return null;
     const [dept, index] = id.split('_');
@@ -160,41 +218,9 @@ function getStudentById(id) {
     return null;
 }
 
-function getTeams() {
-    return JSON.parse(localStorage.getItem('teams') || '[]');
-}
-
-function saveTeams(teams) {
-    localStorage.setItem('teams', JSON.stringify(teams));
-}
-
-function saveTeam(team) {
-    const teams = getTeams();
-    teams.push(team);
-    saveTeams(teams);
-}
-
-function getMentorSelections() {
-    return JSON.parse(localStorage.getItem('mentorSelections') || '{}');
-}
-
-function saveMentorSelections(selections) {
-    localStorage.setItem('mentorSelections', JSON.stringify(selections));
-}
-
-function getRegisteredStudents() {
-    const teams = getTeams();
-    const registered = new Set();
-    teams.forEach(team => {
-        registered.add(team.leader);
-        team.members.forEach(member => registered.add(member));
-    });
-    return registered;
-}
-
 // ====== POPULATE DROPDOWN FUNCTIONS ======
-function populateTeamLeaderDropdown() {
-    const registered = getRegisteredStudents();
+async function populateTeamLeaderDropdown() {
+    const registered = await getRegisteredStudents();
     const dropdown = document.getElementById('team-leader');
     if (!dropdown) return;
     
@@ -237,8 +263,8 @@ function populateDepartmentDropdowns() {
     });
 }
 
-function populateStudentByDepartment(department, targetDropdownId) {
-    const registered = getRegisteredStudents();
+async function populateStudentByDepartment(department, targetDropdownId) {
+    const registered = await getRegisteredStudents();
     const dropdown = document.getElementById(targetDropdownId);
     if (!dropdown) return;
     
@@ -292,7 +318,7 @@ function populateAdminMentorDropdown() {
 }
 
 // ====== VALIDATION FUNCTIONS ======
-function validateStudentSelections() {
+async function validateStudentSelections() {
     const selectedStudents = [];
     const dropdowns = ['team-leader', 'member-2', 'member-3', 'member-4'];
     
@@ -307,6 +333,16 @@ function validateStudentSelections() {
     
     if (hasDuplicates) {
         showError('team-error', 'Each student can only be selected once. Please choose different students.');
+        return false;
+    }
+    
+    // Check if any selected students are already registered
+    const registeredStudents = await getRegisteredStudents();
+    const alreadyRegistered = selectedStudents.filter(studentId => registeredStudents.has(studentId));
+    
+    if (alreadyRegistered.length > 0) {
+        const studentNames = alreadyRegistered.map(id => getStudentById(id)?.name).join(', ');
+        showError('team-error', `The following students are already registered in other teams: ${studentNames}`);
         return false;
     }
     
@@ -335,11 +371,11 @@ function validateMentorSelections() {
 }
 
 // ====== FORM HANDLERS ======
-function handleTeamDetailsForm(event) {
+async function handleTeamDetailsForm(event) {
     event.preventDefault();
     hideError('team-error');
     
-    if (!validateStudentSelections()) return false;
+    if (!(await validateStudentSelections())) return false;
     
     const teamName = document.getElementById('team-name').value.trim();
     const teamLeader = document.getElementById('team-leader').value;
@@ -353,7 +389,7 @@ function handleTeamDetailsForm(event) {
     }
     
     // Check for duplicate team name
-    const existingTeams = getTeams();
+    const existingTeams = await getTeams();
     if (existingTeams.some(team => team.name.toLowerCase() === teamName.toLowerCase())) {
         showError('team-error', 'Team name already exists. Please choose a different name.');
         return false;
@@ -363,7 +399,7 @@ function handleTeamDetailsForm(event) {
     if (member4) members.push(member4);
     
     currentTeam = {
-        teamId: `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        team_id: `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: teamName,
         leader: teamLeader,
         members: members
@@ -373,7 +409,7 @@ function handleTeamDetailsForm(event) {
     return false;
 }
 
-function handleMentorSelectionForm(event) {
+async function handleMentorSelectionForm(event) {
     event.preventDefault();
     hideError('mentor-error');
     
@@ -389,7 +425,7 @@ function handleMentorSelectionForm(event) {
         return false;
     }
     
-    currentTeam.mentorPreferences = [
+    currentTeam.mentor_preferences = [
         parseInt(mentor1), parseInt(mentor2), 
         parseInt(mentor3), parseInt(mentor4)
     ];
@@ -398,7 +434,7 @@ function handleMentorSelectionForm(event) {
     return false;
 }
 
-function handleProjectIdeasForm(event) {
+async function handleProjectIdeasForm(event) {
     event.preventDefault();
     hideError('ideas-error');
     
@@ -416,27 +452,32 @@ function handleProjectIdeasForm(event) {
         return false;
     }
     
-    currentTeam.projectIdeas = [idea1, idea2, idea3];
-    currentTeam.registrationDate = new Date().toISOString();
+    currentTeam.project_ideas = [idea1, idea2, idea3];
+    currentTeam.registration_date = new Date().toISOString();
     
-    saveTeam(currentTeam);
+    const success = await saveTeam(currentTeam);
     
-    // Reset forms
-    document.getElementById('team-details-form').reset();
-    document.getElementById('mentor-selection-form').reset();
-    document.getElementById('project-ideas-form').reset();
+    if (success) {
+        // Reset forms
+        document.getElementById('team-details-form').reset();
+        document.getElementById('mentor-selection-form').reset();
+        document.getElementById('project-ideas-form').reset();
+        
+        // Reset member dropdowns
+        ['member-2', 'member-3', 'member-4'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.disabled = true;
+                element.innerHTML = '<option value="">Select Student</option>';
+            }
+        });
+        
+        currentTeam = {};
+        showPage('success-page');
+    } else {
+        showError('ideas-error', 'Failed to save team. Please try again.');
+    }
     
-    // Reset member dropdowns
-    ['member-2', 'member-3', 'member-4'].forEach(id => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.disabled = true;
-            element.innerHTML = '<option value="">Select Student</option>';
-        }
-    });
-    
-    currentTeam = {};
-    showPage('success-page');
     return false;
 }
 
@@ -464,8 +505,8 @@ function logout() {
 }
 
 // ====== DISPLAY FUNCTIONS ======
-function displayTeams() {
-    const teams = getTeams();
+async function displayTeams() {
+    const teams = await getTeams();
     const teamsContainer = document.getElementById('teams-list');
     if (!teamsContainer) return;
     
@@ -498,7 +539,7 @@ function displayTeams() {
                 <div class="team-detail">
                     <h5>Mentor Preferences</h5>
                     <ul>
-                        ${team.mentorPreferences.map((mentorIndex, index) => 
+                        ${team.mentor_preferences.map((mentorIndex, index) => 
                             `<li>${index + 1}. ${appData.mentors[mentorIndex]}</li>`
                         ).join('')}
                     </ul>
@@ -506,19 +547,19 @@ function displayTeams() {
                 <div class="team-detail">
                     <h5>Project Ideas</h5>
                     <ul>
-                        ${team.projectIdeas.map((idea, index) => 
+                        ${team.project_ideas.map((idea, index) => 
                             `<li><strong>Idea ${index + 1}:</strong> ${idea}</li>`
                         ).join('')}
                     </ul>
                 </div>
             </div>
-            <p class="registration-date"><small>Registered on: ${new Date(team.registrationDate).toLocaleDateString()}</small></p>
+            <p class="registration-date"><small>Registered on: ${new Date(team.registration_date).toLocaleDateString()}</small></p>
         </div>
     `).join('');
 }
 
-function displayTeamsManagement() {
-    const teams = getTeams();
+async function displayTeamsManagement() {
+    const teams = await getTeams();
     const container = document.getElementById('teams-management-list');
     if (!container) return;
     
@@ -531,14 +572,14 @@ function displayTeamsManagement() {
         <div class="team-management-card">
             <div class="team-header">
                 <h4>${team.name}</h4>
-                <button onclick="deleteTeam('${team.teamId}')" class="btn btn--danger btn--sm">
+                <button onclick="deleteTeam('${team.team_id}')" class="btn btn--danger btn--sm">
                     Delete Team
                 </button>
             </div>
             <div class="team-summary">
                 <p><strong>Leader:</strong> ${getStudentById(team.leader)?.name}</p>
                 <p><strong>Members:</strong> ${team.members.length}</p>
-                <p><strong>Registered:</strong> ${new Date(team.registrationDate).toLocaleDateString()}</p>
+                <p><strong>Registered:</strong> ${new Date(team.registration_date).toLocaleDateString()}</p>
             </div>
         </div>
     `).join('');
@@ -558,8 +599,8 @@ function getDepartmentDistribution(memberIds) {
         .join(', ');
 }
 
-function displayRemainingStudents() {
-    const teams = getTeams();
+async function displayRemainingStudents() {
+    const teams = await getTeams();
     const registeredStudentIds = new Set();
     
     teams.forEach(team => {
@@ -592,150 +633,9 @@ function displayRemainingStudents() {
     container.innerHTML = html;
 }
 
-function displayMentorTeams() {
-    const mentorIndex = document.getElementById('mentor-selector').value;
-    if (!mentorIndex) {
-        document.getElementById('mentor-teams-display').classList.add('hidden');
-        return;
-    }
-    
-    const mentor = appData.mentors[parseInt(mentorIndex)];
-    const teams = getTeams();
-    const mentorSelections = getMentorSelections();
-    
-    document.getElementById('mentor-name-display').textContent = mentor;
-    
-    const preferences = {1: [], 2: [], 3: [], 4: []};
-    
-    teams.forEach(team => {
-        const preferenceIndex = team.mentorPreferences.indexOf(parseInt(mentorIndex));
-        if (preferenceIndex !== -1) {
-            preferences[preferenceIndex + 1].push(team);
-        }
-    });
-    
-    const statsContainer = document.getElementById('preference-stats');
-    if (statsContainer) {
-        statsContainer.innerHTML = Object.keys(preferences).map(level => `
-            <div class="preference-section">
-                <h4>${getOrdinal(level)} Choice (${preferences[level].length} teams)</h4>
-                ${preferences[level].map(team => `
-                    <div class="preference-team">
-                        <h5>${team.name}</h5>
-                        <p>Leader: ${getStudentById(team.leader)?.name}</p>
-                        <p>Size: ${team.members.length} members</p>
-                    </div>
-                `).join('') || '<p class="no-teams">No teams selected this preference level.</p>'}
-            </div>
-        `).join('');
-    }
-    
-    displayTeamSelection(parseInt(mentorIndex), teams.filter(team => team.mentorPreferences.includes(parseInt(mentorIndex))));
-    
-    document.getElementById('mentor-teams-display').classList.remove('hidden');
-}
-
-function displayTeamSelection(mentorIndex, applicantTeams) {
-    const mentorSelections = getMentorSelections();
-    const selectedTeams = mentorSelections[mentorIndex] || [];
-    
-    const selectionContainer = document.getElementById('team-selection');
-    if (!selectionContainer) return;
-    
-    selectionContainer.innerHTML = `
-        <h4>Select Your Teams (Maximum 4)</h4>
-        <div class="selection-info">
-            <p><strong>Currently Selected:</strong> ${selectedTeams.length}/4 teams</p>
-            ${selectedTeams.length < 4 ? 
-                '<p class="status status--info">You can select ' + (4 - selectedTeams.length) + ' more team(s).</p>' : 
-                '<p class="status status--warning">Maximum teams selected.</p>'
-            }
-        </div>
-        ${applicantTeams.map(team => {
-            const isSelected = selectedTeams.includes(team.name);
-            const preferenceLevel = team.mentorPreferences.indexOf(mentorIndex) + 1;
-            
-            return `
-                <div class="selectable-team ${isSelected ? 'selected' : ''}" data-team-name="${team.name}">
-                    <div class="team-selection-header">
-                        <h5>${team.name}</h5>
-                        <button class="btn btn--sm ${isSelected ? 'btn--secondary' : 'btn--primary'} select-team-btn" 
-                                onclick="toggleTeamSelection(${mentorIndex}, '${team.name}')"
-                                ${selectedTeams.length >= 4 && !isSelected ? 'disabled' : ''}>
-                            ${isSelected ? 'Remove' : 'Select'}
-                        </button>
-                    </div>
-                    <p><strong>Preference Level:</strong> ${getOrdinal(preferenceLevel)} choice</p>
-                    <p><strong>Leader:</strong> ${getStudentById(team.leader)?.name} (${getStudentById(team.leader)?.department})</p>
-                    <p><strong>Team Size:</strong> ${team.members.length} members</p>
-                    <p><strong>Departments:</strong> ${getDepartmentDistribution(team.members)}</p>
-                </div>
-            `;
-        }).join('')}
-    `;
-}
-
-function toggleTeamSelection(mentorIndex, teamName) {
-    const mentorSelections = getMentorSelections();
-    const selectedTeams = mentorSelections[mentorIndex] || [];
-    
-    const isCurrentlySelected = selectedTeams.includes(teamName);
-    
-    if (isCurrentlySelected) {
-        mentorSelections[mentorIndex] = selectedTeams.filter(name => name !== teamName);
-    } else {
-        if (selectedTeams.length < 4) {
-            mentorSelections[mentorIndex] = [...selectedTeams, teamName];
-        } else {
-            alert('You can only select a maximum of 4 teams.');
-            return;
-        }
-    }
-    
-    saveMentorSelections(mentorSelections);
-    displayMentorTeams();
-}
-
-function getOrdinal(number) {
-    const ordinals = ['', '1st', '2nd', '3rd', '4th'];
-    return ordinals[number] || `${number}th`;
-}
-
-// ====== DELETE FUNCTIONS ======
-function deleteTeam(teamId) {
-    if (confirm('Are you sure you want to delete this team? This action cannot be undone.')) {
-        const teams = getTeams();
-        const updatedTeams = teams.filter(team => team.teamId !== teamId);
-        saveTeams(updatedTeams);
-        
-        // Refresh displays
-        displayTeamsManagement();
-        displayTeams();
-        displayRemainingStudents();
-        
-        alert('Team deleted successfully!');
-    }
-}
-
-function deleteAllTeams() {
-    if (confirm('Are you sure you want to delete ALL teams? This action cannot be undone.')) {
-        if (confirm('This will permanently delete all team registrations. Are you absolutely sure?')) {
-            localStorage.removeItem('teams');
-            localStorage.removeItem('mentorSelections');
-            
-            // Refresh displays
-            displayTeamsManagement();
-            displayTeams();
-            displayRemainingStudents();
-            
-            alert('All teams deleted successfully!');
-        }
-    }
-}
-
 // ====== EXPORT FUNCTIONS ======
-function exportTeamsToCSV() {
-    const teams = getTeams();
+async function exportTeamsToCSV() {
+    const teams = await getTeams();
     
     if (teams.length === 0) {
         alert('No teams to export.');
@@ -752,7 +652,7 @@ function exportTeamsToCSV() {
             const leader = getStudentById(team.leader);
             const allMembers = team.members.map(id => getStudentById(id)?.name).join('; ');
             const deptDist = getDepartmentDistribution(team.members);
-            const mentors = team.mentorPreferences.map(index => appData.mentors[index]);
+            const mentors = team.mentor_preferences.map(index => appData.mentors[index]);
             
             return [
                 `"${team.name}"`,
@@ -761,40 +661,13 @@ function exportTeamsToCSV() {
                 `"${allMembers}"`,
                 `"${deptDist}"`,
                 ...mentors.map(m => `"${m}"`),
-                ...team.projectIdeas.map(idea => `"${idea}"`),
-                `"${new Date(team.registrationDate).toLocaleDateString()}"`
+                ...team.project_ideas.map(idea => `"${idea}"`),
+                `"${new Date(team.registration_date).toLocaleDateString()}"`
             ].join(',');
         })
     ].join('\n');
     
     downloadCSV(csvContent, 'capstone_teams.csv');
-}
-
-function exportMentorSelectionsToCSV() {
-    const mentorSelections = getMentorSelections();
-    
-    if (Object.keys(mentorSelections).length === 0) {
-        alert('No mentor selections to export.');
-        return;
-    }
-    
-    const headers = ['Mentor Name', 'Selected Teams', 'Team Count'];
-    
-    const csvContent = [
-        headers.join(','),
-        ...Object.entries(mentorSelections).map(([mentorIndex, teams]) => {
-            const mentorName = appData.mentors[parseInt(mentorIndex)];
-            const teamsList = teams.join('; ');
-            
-            return [
-                `"${mentorName}"`,
-                `"${teamsList}"`,
-                teams.length
-            ].join(',');
-        })
-    ].join('\n');
-    
-    downloadCSV(csvContent, 'mentor_selections.csv');
 }
 
 function downloadCSV(content, filename) {
@@ -875,12 +748,6 @@ function initializeApp() {
             });
         }
     }
-    
-    // Mentor selector change listener
-    const mentorSelector = document.getElementById('mentor-selector');
-    if (mentorSelector) {
-        mentorSelector.addEventListener('change', displayMentorTeams);
-    }
 }
 
 // ====== START APPLICATION ======
@@ -894,8 +761,4 @@ window.handleProjectIdeasForm = handleProjectIdeasForm;
 window.handleAdminLogin = handleAdminLogin;
 window.logout = logout;
 window.deleteTeam = deleteTeam;
-window.deleteAllTeams = deleteAllTeams;
 window.exportTeamsToCSV = exportTeamsToCSV;
-window.exportMentorSelectionsToCSV = exportMentorSelectionsToCSV;
-window.toggleTeamSelection = toggleTeamSelection;
-window.displayMentorTeams = displayMentorTeams;
