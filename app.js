@@ -95,14 +95,39 @@ const appData = {
     ],
     adminCredentials: {
         username: "ansh",
-        password: "anshthakare13"
-    }
+        password: "shaurya"
+    },
+    mentorCredentials: {
+        'mentor1': { password: 'Jyoti', name: 'Jyoti Khurpude' },
+        'mentor2': { password: 'Sanjivini', name: 'Sanjivani Kulkarni' },
+        'mentor3': { password: 'Mrunal', name: 'Mrunal Fatangare' },
+        'mentor4': { password: 'Hemlata', name: 'Hemlata Ohal' },
+        'mentor5': { password: 'Farahhdeeba', name: 'Farahhdeeba Shaikh' },
+        'mentor6': { password: 'Prerana', name: 'Prerana Patil' },
+        'mentor7': { password: 'Yogesh', name: 'Yogesh Patil' },
+        'mentor8': { password: 'Vilas', name: 'Vilas Rathod' },
+        'mentor9': { password: 'Pradeep', name: 'Pradeep Paygude' },
+        'mentor10': { password: 'Kajal', name: 'Kajal Chavan' },
+        'mentor11': { password: 'Megha', name: 'Megha Dhotey' },
+        'mentor12': { password: 'Pallavi', name: 'Pallavi Nehete' },
+        'mentor13': { password: 'Nita', name: 'Nita Dongre' },
+        'mentor14': { password: 'Mrunal', name: 'Mrunal Aware' },
+        'mentor15': { password: 'Shilpa', name: 'Shilpa Shitole' },
+        'mentor16': { password: 'Vaishali', name: 'Vaishali Langote' },
+        'mentor17': { password: 'Sulkshana', name: 'Sulkshana Malwade' }
+    },
+    HOD_CREDENTIALS: {
+    username: 'ansh',
+    password: 'shaurya'
+}
 };
-
+let currentEditTeam = null;
+let isHODLoggedIn = false;
 // ====== APPLICATION STATE ======
 let currentTeam = {};
 let isLoggedIn = false;
 let selectedMentorTeams = {};
+let currentLoggedMentor = null;
 
 // ====== SUPABASE DATA FUNCTIONS ======
 async function getTeams() {
@@ -119,6 +144,50 @@ async function getTeams() {
         return [];
     }
 }
+// Add this function to handle leader department selection
+// Add this in your DOMContentLoaded or initialization function
+
+
+
+// Update the populateSelects function to also populate leader department
+function populateSelects() {
+    const departments = Object.keys(appData.students);
+    
+    // Populate leader department dropdown
+    const leaderDeptSelect = document.getElementById('leader-department');
+    if (leaderDeptSelect) {
+        leaderDeptSelect.innerHTML = '<option value="">Select Department</option>';
+        departments.forEach(dept => {
+            const option = document.createElement('option');
+            option.value = dept;
+            option.textContent = dept;
+            leaderDeptSelect.appendChild(option);
+        });
+    }
+    
+    // Initialize team leader dropdown as empty
+    const teamLeaderSelect = document.getElementById('team-leader');
+    if (teamLeaderSelect) {
+        teamLeaderSelect.innerHTML = '<option value="">Select Student</option>';
+    }
+    
+    // Populate other member department dropdowns
+    for (let i = 2; i <= 4; i++) {
+        const deptSelect = document.getElementById(`member-${i}-dept`);
+        if (deptSelect) {
+            deptSelect.innerHTML = '<option value="">Select Department</option>';
+            departments.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept;
+                option.textContent = dept;
+                deptSelect.appendChild(option);
+            });
+        }
+    }
+}
+
+
+
 
 async function saveTeam(team) {
     try {
@@ -185,10 +254,602 @@ function showPage(pageId) {
         }, 100);
     } else if (pageId === 'mentor-panel') {
         setTimeout(() => {
-            populateAdminMentorDropdown();
+            initializeMentorPanel();
         }, 100);
     }
 }
+function initializeMentorPanel() {
+    currentLoggedMentor = null;
+    const mentorDashboard = document.getElementById('mentor-dashboard');
+    const mentorLoginForm = document.querySelector('.mentor-login-form');
+    if (mentorDashboard) mentorDashboard.style.display = 'none';
+    if (mentorLoginForm) mentorLoginForm.style.display = 'block';
+    const usernameField = document.getElementById('mentor-username');
+    const passwordField = document.getElementById('mentor-password');
+    if (usernameField) usernameField.value = '';
+    if (passwordField) passwordField.value = '';
+}
+function mentorLogin() {
+    const username = document.getElementById('mentor-username').value.trim();
+    const password = document.getElementById('mentor-password').value.trim();
+    if (!username || !password) {
+        alert('Please enter both username and password');
+        return;
+    }
+    const creds = appData.mentorCredentials[username];
+    if (creds && creds.password === password) {
+        currentLoggedMentor = { username, name: creds.name };
+        document.getElementById('mentor-dashboard').style.display = 'block';
+        document.getElementById('logged-mentor-name').textContent = creds.name;
+        document.querySelector('.mentor-login-form').style.display = 'none';
+        loadMentorTeams();
+        document.getElementById('mentor-username').value = '';
+        document.getElementById('mentor-password').value = '';
+    } else {
+        alert('Invalid username or password');
+    }
+}
+
+function mentorLogout() {
+    currentLoggedMentor = null;
+    document.getElementById('mentor-dashboard').style.display = 'none';
+    document.querySelector('.mentor-login-form').style.display = 'block';
+    document.getElementById('mentor-teams-display').innerHTML = '';
+}
+
+async function loadMentorTeams() {
+    if (!currentLoggedMentor) return;
+    
+    const mentorIndex = parseInt(currentLoggedMentor.username.replace('mentor', '')) - 1;
+    const teams = await getTeams();
+    
+    // Filter teams where current mentor is relevant (either accepted by them or pending for them)
+    const relevantTeams = teams.filter(team => {
+        // Include accepted teams by this mentor
+        if (team.mentor_status === 'accepted' && team.final_mentor === currentLoggedMentor.name) {
+            return true;
+        }
+        
+        // Include pending teams where this mentor is the current preference
+        if (team.mentor_status === 'pending' && team.mentor_preferences) {
+            const currentMentorIndex = team.current_mentor_index || 0;
+            return team.mentor_preferences[currentMentorIndex] === mentorIndex;
+        }
+        
+        return false;
+    });
+    
+    displayMentorTeams(relevantTeams, mentorIndex);
+}
+async function handleHODLogin(event) {
+    event.preventDefault();
+    hideError('hod-login-error');
+    
+    console.log('HOD Login attempt'); // Debug log
+    
+    const username = document.getElementById('hod-username').value.trim();
+    const password = document.getElementById('hod-password').value.trim();
+    
+    console.log('Username:', username, 'Password:', password); // Debug log
+    
+    // Fix: Use appData.HOD_CREDENTIALS instead of HOD_CREDENTIALS
+    if (username === appData.HOD_CREDENTIALS.username && password === appData.HOD_CREDENTIALS.password) {
+        isHODLoggedIn = true;
+        document.getElementById('hod-login-section').style.display = 'none';
+        document.getElementById('edit-teams-dashboard').style.display = 'block';
+        await loadEditTeams();
+        console.log('HOD login successful'); // Debug log
+    } else {
+        showError('hod-login-error', 'Invalid HOD credentials. Please try again.');
+        console.log('HOD login failed'); // Debug log
+    }
+}
+
+
+// HOD Logout
+function hodLogout() {
+    isHODLoggedIn = false;
+    document.getElementById('hod-login-section').style.display = 'block';
+    document.getElementById('edit-teams-dashboard').style.display = 'none';
+    document.getElementById('hod-username').value = '';
+    document.getElementById('hod-password').value = '';
+    hideError('hod-login-error');
+}
+
+// Load teams for editing
+async function loadEditTeams() {
+    if (!isHODLoggedIn) return;
+    
+    const teams = await getTeams();
+    const container = document.getElementById('edit-teams-list');
+    
+    if (teams.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No teams registered yet.</p></div>';
+        return;
+    }
+    
+    container.innerHTML = teams.map(team => {
+        const leader = getStudentById(team.leader);
+        const leaderName = leader ? leader.name : 'Unknown';
+        const memberCount = team.members ? team.members.length : 0;
+        
+        return `
+            <div class="edit-team-card" onclick="openEditModal('${team.team_id}')">
+                <h4>${team.name}</h4>
+                <p><strong>Leader:</strong> ${leaderName}</p>
+                <p><strong>Members:</strong> ${memberCount}</p>
+                <p><strong>Registered:</strong> ${new Date(team.registration_date).toLocaleDateString()}</p>
+            </div>
+        `;
+    }).join('');
+}
+
+// Open edit modal
+async function openEditModal(teamId) {
+    const teams = await getTeams();
+    currentEditTeam = teams.find(team => team.team_id === teamId);
+    
+    if (!currentEditTeam) return;
+    
+    // Populate form with current data
+    document.getElementById('edit-team-id').value = currentEditTeam.team_id;
+    document.getElementById('edit-team-name').textContent = currentEditTeam.name;
+    document.getElementById('edit-team-name-input').value = currentEditTeam.name;
+    
+    // Load current leader
+    const leader = getStudentById(currentEditTeam.leader);
+    document.getElementById('current-leader-name').textContent = leader ? leader.name : 'Unknown';
+    
+    // Load current members
+    loadCurrentMembers();
+    
+    // Load mentor preferences
+    loadMentorPreferences();
+    
+    // Load project ideas from array
+    const projectIdeas = currentEditTeam.project_ideas || ['', '', ''];
+    document.getElementById('edit-idea-1').value = projectIdeas[0] || '';
+    document.getElementById('edit-idea-2').value = projectIdeas[1] || '';
+    document.getElementById('edit-idea-3').value = projectIdeas[2] || '';
+    
+    // Populate dropdowns
+    populateEditDropdowns();
+    
+    // Show modal
+    document.getElementById('team-edit-modal').style.display = 'flex';
+}
+
+
+// Close edit modal
+function closeEditModal() {
+    document.getElementById('team-edit-modal').style.display = 'none';
+    currentEditTeam = null;
+    hideError('edit-error');
+    
+    // Reset form
+    document.getElementById('team-edit-form').reset();
+    document.getElementById('leader-change-section').style.display = 'none';
+    document.getElementById('add-member-section').style.display = 'none';
+}
+
+// Load current members
+function loadCurrentMembers() {
+    const container = document.getElementById('current-members-list');
+    const leaderSelect = document.getElementById('new-leader-select');
+    
+    leaderSelect.innerHTML = '<option value="">Choose new leader</option>';
+    
+    container.innerHTML = currentEditTeam.members.map(memberId => {
+        const member = getStudentById(memberId);
+        const memberName = member ? member.name : 'Unknown';
+        const memberDept = member ? member.department : 'Unknown';
+        
+        // Add to leader selection
+        if (member) {
+            leaderSelect.innerHTML += `<option value="${memberId}">${memberName} (${memberDept})</option>`;
+        }
+        
+        return `
+            <div class="current-member">
+                <div class="member-info">
+                    <strong>${memberName}</strong> (${memberDept})
+                    ${memberId === currentEditTeam.leader ? '<span class="badge">Leader</span>' : ''}
+                </div>
+                <div class="member-actions">
+                    ${memberId !== currentEditTeam.leader ? 
+                        `<button type="button" class="btn btn--danger btn--sm" onclick="removeMember('${memberId}')">Remove</button>` : 
+                        ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Load mentor preferences
+function loadMentorPreferences() {
+    const preferences = currentEditTeam.mentor_preferences || [];
+    
+    for (let i = 1; i <= 4; i++) {
+        const select = document.getElementById(`edit-mentor-${i}`);
+        select.innerHTML = '<option value="">Select Choice</option>';
+        
+        appData.mentors.forEach((mentor, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = mentor;
+            if (preferences[i-1] === index) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    }
+}
+
+// Populate edit dropdowns
+function populateEditDropdowns() {
+    const departments = Object.keys(appData.students);
+    const deptSelect = document.getElementById('new-member-dept');
+    
+    deptSelect.innerHTML = '<option value="">Select Department</option>';
+    departments.forEach(dept => {
+        const option = document.createElement('option');
+        option.value = dept;
+        option.textContent = dept;
+        deptSelect.appendChild(option);
+    });
+    
+    // Add event listener for department selection
+    deptSelect.addEventListener('change', function() {
+        const department = this.value;
+        const studentSelect = document.getElementById('new-member-student');
+        
+        studentSelect.innerHTML = '<option value="">Select Student</option>';
+        studentSelect.disabled = !department;
+        
+        if (department && appData.students[department]) {
+            appData.students[department].forEach((student, index) => {
+                const studentId = `${department}_${index}`;
+                
+                // Don't show students already in the team
+                if (!currentEditTeam.members.includes(studentId)) {
+                    const option = document.createElement('option');
+                    option.value = studentId;
+                    option.textContent = student;
+                    studentSelect.appendChild(option);
+                }
+            });
+        }
+    });
+}
+
+// Change leader
+function changeLeader() {
+    const section = document.getElementById('leader-change-section');
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+}
+
+// Add new member
+function addNewMember() {
+    document.getElementById('add-member-section').style.display = 'block';
+    populateEditDropdowns();
+}
+
+// Cancel add member
+function cancelAddMember() {
+    document.getElementById('add-member-section').style.display = 'none';
+    document.getElementById('new-member-dept').value = '';
+    document.getElementById('new-member-student').value = '';
+}
+
+// Confirm add member
+async function confirmAddMember() {
+    const studentId = document.getElementById('new-member-student').value;
+    
+    if (!studentId) {
+        showError('edit-error', 'Please select a student to add.');
+        return;
+    }
+    
+    if (currentEditTeam.members.length >= 4) {
+        showError('edit-error', 'Team cannot have more than 4 members.');
+        return;
+    }
+    
+    // Add member to current team data
+    currentEditTeam.members.push(studentId);
+    
+    // Refresh display
+    loadCurrentMembers();
+    cancelAddMember();
+    
+    showSuccess('Member added successfully!');
+}
+
+// Remove member
+async function removeMember(memberId) {
+    if (!confirm('Are you sure you want to remove this member?')) return;
+    
+    if (currentEditTeam.members.length <= 3) {
+        showError('edit-error', 'Team must have at least 3 members.');
+        return;
+    }
+    
+    // Remove member from current team data
+    currentEditTeam.members = currentEditTeam.members.filter(id => id !== memberId);
+    
+    // Refresh display
+    loadCurrentMembers();
+    
+    showSuccess('Member removed successfully!');
+}
+
+// Handle team edit form submission
+async function handleTeamEditForm(event) {
+    event.preventDefault();
+    hideError('edit-error');
+    
+    try {
+        // Collect form data
+        const teamName = document.getElementById('edit-team-name-input').value.trim();
+        const newLeader = document.getElementById('new-leader-select').value;
+        
+        // Collect mentor preferences (as array of integers)
+        const mentorPreferences = [];
+        for (let i = 1; i <= 4; i++) {
+            const mentorIndex = document.getElementById(`edit-mentor-${i}`).value;
+            if (mentorIndex !== '') {
+                mentorPreferences.push(parseInt(mentorIndex));
+            }
+        }
+        
+        // Collect project ideas as array (matching your schema)
+        const projectIdeas = [
+            document.getElementById('edit-idea-1').value.trim(),
+            document.getElementById('edit-idea-2').value.trim(),
+            document.getElementById('edit-idea-3').value.trim()
+        ];
+        
+        // Validation
+        if (!teamName) {
+            showError('edit-error', 'Team name is required.');
+            return;
+        }
+        
+        if (mentorPreferences.length !== 4) {
+            showError('edit-error', 'All four mentor preferences are required.');
+            return;
+        }
+        
+        if (projectIdeas.some(idea => !idea)) {
+            showError('edit-error', 'All three project ideas are required.');
+            return;
+        }
+        
+        // Update team data (matching your exact schema)
+        const updatedTeam = {
+            name: teamName,
+            leader: newLeader || currentEditTeam.leader,
+            members: currentEditTeam.members,
+            mentor_preferences: mentorPreferences,
+            project_ideas: projectIdeas // This matches your ARRAY column
+        };
+        
+        // Save to Supabase
+        const { error } = await supabaseClient
+            .from('teams')
+            .update(updatedTeam)
+            .eq('team_id', currentEditTeam.team_id);
+        
+        if (error) throw error;
+        
+        alert('Team updated successfully!');
+        closeEditModal();
+        await loadEditTeams();
+        
+    } catch (error) {
+        console.error('Error updating team:', error);
+        showError('edit-error', 'Error updating team: ' + error.message);
+    }
+}
+
+
+// Helper function to show success message
+function showSuccess(message) {
+    // You can implement a success toast notification here
+    console.log('Success:', message);
+}
+
+
+function displayMentorTeams(mentorTeams, mentorIndex) {
+    const container = document.getElementById('mentor-teams-display');
+    if (!container) return;
+
+    let html = '';
+    
+    // Get accepted teams for this mentor
+    const acceptedTeams = mentorTeams.filter(team => 
+        team.mentor_status === 'accepted' && team.final_mentor === currentLoggedMentor.name
+    );
+    
+    // Get pending teams for this mentor
+    const pendingTeams = mentorTeams.filter(team => 
+        team.mentor_status === 'pending' && 
+        team.mentor_preferences && 
+        team.mentor_preferences[team.current_mentor_index || 0] === mentorIndex
+    );
+    
+    // Display accepted teams section
+    if (acceptedTeams.length > 0) {
+        html += `
+            <div class="mentor-section">
+                <h4 class="mentor-section-title">Your Teams</h4>
+                <div class="accepted-teams-container">
+        `;
+        
+        acceptedTeams.forEach(team => {
+            html += `
+                <div class="accepted-team-card">
+                    <div class="accepted-team-info">
+                        <h5 class="accepted-team-name">${team.name}</h5>
+                        <p class="accepted-team-leader">Leader: ${getStudentById(team.leader)?.name || team.leader}</p>
+                    </div>
+                    <div class="accepted-team-badge">
+                        <span class="status-badge status-accepted">Accepted</span>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    }
+    
+    // Display pending teams section
+    html += `
+        <div class="mentor-section">
+            <h4 class="mentor-section-title">Pending Teams</h4>
+    `;
+    
+    if (pendingTeams.length === 0) {
+        html += '<div class="empty-state"><p>No teams are currently waiting for your response.</p></div>';
+    } else {
+        html += '<div class="mentor-teams-container">';
+        
+        pendingTeams.forEach(team => {
+            const currentPreferenceIndex = team.current_mentor_index || 0;
+            const preferenceOrder = ['1st', '2nd', '3rd', '4th'];
+            const preferenceText = preferenceOrder[currentPreferenceIndex];
+            
+            html += `
+                <div class="team-card mentor-team-card">
+                    <div class="team-card-header">
+                        <h5>${team.name}</h5>
+                        <div class="preference-badge preference-${currentPreferenceIndex + 1}">
+                            ${preferenceText} Choice
+                        </div>
+                    </div>
+                    
+                    <div class="team-details">
+                        <p><strong>Leader:</strong> ${getStudentById(team.leader)?.name || team.leader}</p>
+                        <p><strong>Members:</strong> ${team.members.map(member => getStudentById(member)?.name || member).join(', ')}</p>
+                        <p><strong>Registered:</strong> ${new Date(team.registration_date).toLocaleDateString()}</p>
+                    </div>
+                    
+                    <div class="project-ideas">
+                        <strong>Project Ideas:</strong>
+                        <ol>
+                            <li>${team.project_idea_1}</li>
+                            <li>${team.project_idea_2}</li>
+                            <li>${team.project_idea_3}</li>
+                        </ol>
+                    </div>
+                    
+                    <div class="mentor-actions">
+                        <button class="btn btn--success" onclick="acceptTeam('${team.team_id}')">
+                            Accept Team
+                        </button>
+                        <button class="btn btn--danger" onclick="rejectTeam('${team.team_id}')">
+                            Reject Team
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    html += '</div>';
+    
+    container.innerHTML = html;
+}
+
+async function acceptTeam(teamId) {
+    if (!currentLoggedMentor) return;
+    
+    if (!confirm('Are you sure you want to accept this team? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const mentorName = currentLoggedMentor.name;
+        
+        const { error } = await supabaseClient
+            .from('teams')
+            .update({
+                final_mentor: mentorName,
+                mentor_status: 'accepted'
+            })
+            .eq('team_id', teamId);
+        
+        if (error) throw error;
+        
+        alert('Team accepted successfully!');
+        await loadMentorTeams(); // Refresh the display
+        
+    } catch (error) {
+        console.error('Error accepting team:', error);
+        alert('Error accepting team: ' + error.message);
+    }
+}
+
+async function rejectTeam(teamId) {
+    if (!currentLoggedMentor) return;
+    
+    if (!confirm('Are you sure you want to reject this team? It will be forwarded to the next mentor preference.')) {
+        return;
+    }
+    
+    try {
+        // Get the current team data
+        const { data: teamData, error: fetchError } = await supabaseClient
+            .from('teams')
+            .select('*')
+            .eq('team_id', teamId)
+            .single();
+        
+        if (fetchError) throw fetchError;
+        
+        const currentMentorIndex = teamData.current_mentor_index || 0;
+        const mentorPreferences = teamData.mentor_preferences;
+        
+        // Check if there's a next mentor preference
+        if (currentMentorIndex + 1 < mentorPreferences.length) {
+            // Move to next mentor preference
+            const { error } = await supabaseClient
+                .from('teams')
+                .update({
+                    current_mentor_index: currentMentorIndex + 1
+                })
+                .eq('team_id', teamId);
+            
+            if (error) throw error;
+            
+            alert('Team rejected and forwarded to next mentor preference.');
+        } else {
+            // No more mentor preferences, mark as rejected
+            const { error } = await supabaseClient
+                .from('teams')
+                .update({
+                    mentor_status: 'rejected'
+                })
+                .eq('team_id', teamId);
+            
+            if (error) throw error;
+            
+            alert('Team rejected. No more mentor preferences available.');
+        }
+        
+        await loadMentorTeams(); // Refresh the display
+        
+    } catch (error) {
+        console.error('Error rejecting team:', error);
+        alert('Error rejecting team: ' + error.message);
+    }
+}
+
 
 function showError(elementId, message) {
     const errorElement = document.getElementById(elementId);
@@ -378,12 +1039,14 @@ async function handleTeamDetailsForm(event) {
     if (!(await validateStudentSelections())) return false;
     
     const teamName = document.getElementById('team-name').value.trim();
+    const leaderDepartment = document.getElementById('leader-department').value;
     const teamLeader = document.getElementById('team-leader').value;
     const member2 = document.getElementById('member-2').value;
     const member3 = document.getElementById('member-3').value;
     const member4 = document.getElementById('member-4').value;
     
-    if (!teamName || !teamLeader || !member2 || !member3) {
+    // Updated validation to check both leader department and student selection
+    if (!teamName || !leaderDepartment || !teamLeader || !member2 || !member3) {
         showError('team-error', 'Please fill in all required fields.');
         return false;
     }
@@ -401,13 +1064,16 @@ async function handleTeamDetailsForm(event) {
     currentTeam = {
         team_id: `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: teamName,
-        leader: teamLeader,
+        leader: teamLeader, // This will be in proper ID format now
         members: members
+        // Removed leaderDepartment - no longer needed since it's embedded in the ID
     };
     
     showPage('mentor-selection');
     return false;
 }
+
+
 
 async function handleMentorSelectionForm(event) {
     event.preventDefault();
@@ -563,12 +1229,17 @@ async function displayTeamsManagement() {
     const container = document.getElementById('teams-management-list');
     if (!container) return;
     
-    if (teams.length === 0) {
-        container.innerHTML = '<div class="empty-state"><p>No teams registered yet.</p></div>';
+    // Filter out accepted teams from Team Management section
+    const manageableTeams = teams.filter(team => 
+        team.mentor_status !== 'accepted' || !team.final_mentor
+    );
+    
+    if (manageableTeams.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No teams available for management. All teams have been assigned to mentors.</p></div>';
         return;
     }
     
-    container.innerHTML = teams.map(team => `
+    container.innerHTML = manageableTeams.map(team => `
         <div class="team-management-card">
             <div class="team-header">
                 <h4>${team.name}</h4>
@@ -580,10 +1251,23 @@ async function displayTeamsManagement() {
                 <p><strong>Leader:</strong> ${getStudentById(team.leader)?.name}</p>
                 <p><strong>Members:</strong> ${team.members.length}</p>
                 <p><strong>Registered:</strong> ${new Date(team.registration_date).toLocaleDateString()}</p>
+                <p><strong>Status:</strong> ${getTeamStatusText(team)}</p>
             </div>
         </div>
     `).join('');
 }
+function getTeamStatusText(team) {
+    if (team.mentor_status === 'pending') {
+        const currentMentorIndex = team.current_mentor_index || 0;
+        const currentMentor = appData.mentors[team.mentor_preferences[currentMentorIndex]] || 'Unknown';
+        return `Pending with ${currentMentor}`;
+    } else if (team.mentor_status === 'rejected') {
+        return 'Rejected by all mentors';
+    } else {
+        return 'Waiting for mentor response';
+    }
+}
+
 
 function getDepartmentDistribution(memberIds) {
     const deptCounts = {};
@@ -922,11 +1606,49 @@ function setupCharacterCounters() {
 
 // ====== INITIALIZATION ======
 function initializeApp() {
-    populateTeamLeaderDropdown();
+    // Populate all dropdowns
+    populateSelects();
     populateDepartmentDropdowns();
     populateMentorDropdowns();
     setupCharacterCounters();
     
+    // Team Leader Department Event Listener - FIXED
+    const leaderDeptDropdown = document.getElementById('leader-department');
+    if (leaderDeptDropdown) {
+        leaderDeptDropdown.addEventListener('change', async function() {
+            const department = this.value;
+            const studentSelect = document.getElementById('team-leader');
+            
+            studentSelect.innerHTML = '<option value="">Select Student</option>';
+            
+            if (department && appData.students[department]) {
+                // Get already registered students to exclude them
+                const registeredStudents = await getRegisteredStudents();
+                
+                appData.students[department].forEach((student, index) => {
+                    const studentId = `${department}_${index}`;
+                    
+                    // Only add if student is not already registered
+                    if (!registeredStudents.has(studentId)) {
+                        const option = document.createElement('option');
+                        option.value = studentId; // Use proper ID format
+                        option.textContent = student;
+                        studentSelect.appendChild(option);
+                    }
+                });
+            }
+        });
+    }
+    const hodLoginForm = document.getElementById('hod-login-form');
+    if (hodLoginForm) {
+        hodLoginForm.addEventListener('submit', handleHODLogin);
+    }
+    
+    // Team Edit Form
+    const teamEditForm = document.getElementById('team-edit-form');
+    if (teamEditForm) {
+        teamEditForm.addEventListener('submit', handleTeamEditForm);
+    }
     // Form event listeners
     const teamForm = document.getElementById('team-details-form');
     if (teamForm) {
@@ -948,7 +1670,7 @@ function initializeApp() {
         loginForm.addEventListener('submit', handleAdminLogin);
     }
     
-    // Department change listeners
+    // Department change listeners for other members
     for (let i = 2; i <= 4; i++) {
         const deptDropdown = document.getElementById(`member-${i}-dept`);
         if (deptDropdown) {
@@ -958,6 +1680,25 @@ function initializeApp() {
         }
     }
     
+    // Mentor authentication event listeners
+    const mentorLoginBtn = document.getElementById('mentor-login-btn');
+    const mentorLogoutBtn = document.getElementById('mentor-logout-btn');
+    const mentorPasswordField = document.getElementById('mentor-password');
+
+    if (mentorLoginBtn) {
+        mentorLoginBtn.addEventListener('click', mentorLogin);
+    }
+
+    if (mentorLogoutBtn) {
+        mentorLogoutBtn.addEventListener('click', mentorLogout);
+    }
+
+    if (mentorPasswordField) {
+        mentorPasswordField.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') mentorLogin();
+        });
+    }
+
     // Mentor selector event listener
     const mentorSelector = document.getElementById('mentor-selector');
     if (mentorSelector) {
@@ -970,6 +1711,8 @@ function initializeApp() {
         selectedMentorTeams = JSON.parse(savedSelections);
     }
 }
+
+
 
 // ====== START APPLICATION ======
 document.addEventListener('DOMContentLoaded', initializeApp);
