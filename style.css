@@ -1782,3 +1782,161 @@ textarea.form-control {
         gap: var(--space-2);
     }
 }
+.text-muted {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-style: italic;
+}
+
+.btn[style*="display: none"] {
+    display: none !important;
+}
+
+.badge {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+/* Finalize Idea Modal Styles */
+.idea-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+}
+
+.idea-option {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-normal);
+}
+
+.idea-option:hover {
+    border-color: var(--color-primary);
+    background: var(--color-surface-light);
+}
+
+.idea-option input[type="radio"] {
+    margin-top: 2px;
+}
+
+.idea-option span {
+    flex: 1;
+    color: var(--color-text);
+    line-height: 1.4;
+}
+
+.status-finalized {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+/* Final List Table Styles */
+.final-list-table-container {
+    overflow-x: auto;
+    margin-top: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+}
+
+.final-list-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+}
+
+.final-list-table th {
+    background: var(--color-primary);
+    color: white;
+    padding: var(--space-4);
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--color-border);
+}
+
+.final-list-table td {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: top;
+}
+
+.final-list-table tr:nth-child(even) {
+    background: var(--color-surface-light);
+}
+
+.final-list-table tr:hover {
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.team-name-cell {
+    font-weight: 600;
+    color: var(--color-primary);
+    min-width: 120px;
+}
+
+.members-cell,
+.preferences-cell,
+.ideas-cell {
+    min-width: 200px;
+}
+
+.final-mentor-cell,
+.final-idea-cell {
+    min-width: 150px;
+}
+
+.member-item,
+.preference-item,
+.idea-item {
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.member-item:last-child,
+.preference-item:last-child,
+.idea-item:last-child {
+    border-bottom: none;
+}
+
+.final-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-6);
+    padding-bottom: var(--space-3);
+    border-bottom: 2px solid var(--color-primary);
+}
+
+.final-list-actions {
+    display: flex;
+    gap: var(--space-3);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .final-list-table {
+        font-size: var(--font-size-xs);
+    }
+    
+    .final-list-table th,
+    .final-list-table td {
+        padding: var(--space-2);
+    }
+    
+    .final-list-header {
+        flex-direction: column;
+        gap: var(--space-3);
+        align-items: flex-start;
+    }
+}
