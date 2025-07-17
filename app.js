@@ -121,6 +121,10 @@ const appData = {
     password: 'shaurya'
 }
 };
+// Add these after your existing global variables
+let isFinalListHODLoggedIn = false;
+let currentFinalizeTeam = null;
+let newIdeaBuffer = [];
 let currentEditTeam = null;
 let isHODLoggedIn = false;
 // ====== APPLICATION STATE ======
@@ -147,6 +151,317 @@ async function getTeams() {
 // Add this function to handle leader department selection
 // Add this in your DOMContentLoaded or initialization function
 
+async function handleTeamDetailsForm(event) {
+    event.preventDefault();
+     console.log('Form submitted!');
+    
+    hideError('team-error');
+    
+    const validationResult = await validateStudentSelections();
+    console.log('Validation result:', validationResult);
+    
+    if (!validationResult) {
+        console.log('Validation failed, returning false');
+        return false;
+    }
+    hideError('team-error');
+    
+    if (!(await validateStudentSelections())) return false;
+    
+    const teamName = document.getElementById('team-name').value.trim();
+    const leaderDepartment = document.getElementById('leader-department').value;
+    const teamLeader = document.getElementById('team-leader').value;
+    const member2 = document.getElementById('member-2').value;
+    const member3 = document.getElementById('member-3').value;
+    const member4 = document.getElementById('member-4').value;
+    
+    // Updated validation - only team name and leader required
+    if (!teamName || !leaderDepartment || !teamLeader) {
+        showError('team-error', 'Please fill in team name and select a team leader.');
+        return false;
+    }
+    
+    // Check for duplicate team name
+    const existingTeams = await getTeams();
+    if (existingTeams.some(team => team.name.toLowerCase() === teamName.toLowerCase())) {
+        showError('team-error', 'Team name already exists. Please choose a different name.');
+        return false;
+    }
+    
+    // Build members array - start with just the leader
+    const members = [teamLeader];
+    if (member2) members.push(member2);
+    if (member3) members.push(member3);
+    if (member4) members.push(member4);
+    
+    // Ensure minimum 1 member (leader) and maximum 4 members
+    if (members.length < 1) {
+        showError('team-error', 'Team must have at least 1 member (the leader).');
+        return false;
+    }
+    
+    if (members.length > 4) {
+        showError('team-error', 'Team cannot have more than 4 members.');
+        return false;
+    }
+    
+    currentTeam = {
+        team_id: `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: teamName,
+        leader: teamLeader,
+        members: members
+    };
+    
+    showPage('mentor-selection');
+    return false;
+}
+async function handleTeamEditForm(event) {
+    event.preventDefault();
+    hideError('edit-error');
+    
+    try {
+        // Collect form data
+        const teamName = document.getElementById('edit-team-name-input').value.trim();
+        const newLeader = document.getElementById('new-leader-select').value;
+        
+        // Collect mentor preferences (as array of integers)
+        const mentorPreferences = [];
+        for (let i = 1; i <= 4; i++) {
+            const mentorIndex = document.getElementById(`edit-mentor-${i}`).value;
+            if (mentorIndex !== '') {
+                mentorPreferences.push(parseInt(mentorIndex));
+            }
+        }
+        
+        // Collect project ideas as array (matching your schema)
+        const projectIdeas = [
+            document.getElementById('edit-idea-1').value.trim(),
+            document.getElementById('edit-idea-2').value.trim(),
+            document.getElementById('edit-idea-3').value.trim()
+        ];
+        
+        // Validation
+        if (!teamName) {
+            showError('edit-error', 'Team name is required.');
+            return;
+        }
+        
+        if (mentorPreferences.length !== 4) {
+            showError('edit-error', 'All four mentor preferences are required.');
+            return;
+        }
+        
+        if (projectIdeas.some(idea => !idea)) {
+            showError('edit-error', 'All three project ideas are required.');
+            return;
+        }
+        
+        // Update team data (matching your exact schema)
+        const updatedTeam = {
+            name: teamName,
+            leader: newLeader || currentEditTeam.leader,
+            members: currentEditTeam.members,
+            mentor_preferences: mentorPreferences,
+            project_ideas: projectIdeas
+        };
+        
+        // Save to Supabase
+        const { error } = await supabaseClient
+            .from('teams')
+            .update(updatedTeam)
+            .eq('team_id', currentEditTeam.team_id);
+        
+        if (error) throw error;
+        
+        alert('Team updated successfully!');
+        closeEditModal();
+        await loadEditTeams();
+        
+    } catch (error) {
+        console.error('Error updating team:', error);
+        showError('edit-error', 'Error updating team: ' + error.message);
+    }
+}
+async function handleFinalListHODLogin(event) {
+    event.preventDefault();
+    hideError('final-list-hod-login-error');
+    
+    const username = document.getElementById('final-list-hod-username').value.trim();
+    const password = document.getElementById('final-list-hod-password').value.trim();
+    
+    if (username === appData.HOD_CREDENTIALS.username && password === appData.HOD_CREDENTIALS.password) {
+        isFinalListHODLoggedIn = true;
+        document.getElementById('final-list-hod-login-section').style.display = 'none';
+        document.getElementById('final-list-dashboard').style.display = 'block';
+        await loadFinalList();
+    } else {
+        showError('final-list-hod-login-error', 'Invalid HOD credentials. Please try again.');
+    }
+}
+
+function finalListHODLogout() {
+    isFinalListHODLoggedIn = false;
+    document.getElementById('final-list-hod-login-section').style.display = 'block';
+    document.getElementById('final-list-dashboard').style.display = 'none';
+    document.getElementById('final-list-hod-username').value = '';
+    document.getElementById('final-list-hod-password').value = '';
+    hideError('final-list-hod-login-error');
+}
+
+async function loadFinalList() {
+    if (!isFinalListHODLoggedIn) return;
+    
+    const teams = await getTeams();
+    
+    // Filter teams that have both final mentor and final idea
+    const finalizedTeams = teams.filter(team => 
+        team.mentor_status === 'accepted' && 
+        team.final_mentor && 
+        team.final_idea
+    );
+    
+    displayFinalList(finalizedTeams);
+}
+
+function displayFinalList(teams) {
+    const container = document.getElementById('final-list-display');
+    
+    if (teams.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>No finalized teams found.</p></div>';
+        return;
+    }
+    
+    let html = `
+        <div class="final-list-table-container">
+            <table class="final-list-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Members</th>
+                        <th>Mentor Preferences</th>
+                        <th>Project Ideas</th>
+                        <th>Final Mentor</th>
+                        <th>Final Idea</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    teams.forEach(team => {
+        // Get member names
+        const memberNames = team.members.map(memberId => {
+            const student = getStudentById(memberId);
+            return student ? student.name : 'Unknown';
+        });
+        
+        // Get mentor preferences
+        const mentorPreferences = team.mentor_preferences || [];
+        const mentorNames = mentorPreferences.map(index => 
+            appData.mentors[index] || 'Unknown'
+        );
+        
+        // Get project ideas
+        const projectIdeas = team.project_ideas || [];
+        
+        html += `
+            <tr>
+                <td class="team-name-cell">${team.name}</td>
+                <td class="members-cell">
+                    ${memberNames.map(name => `<div class="member-item">${name}</div>`).join('')}
+                </td>
+                <td class="preferences-cell">
+                    ${mentorNames.map(name => `<div class="preference-item">${name}</div>`).join('')}
+                </td>
+                <td class="ideas-cell">
+                    ${projectIdeas.map(idea => `<div class="idea-item">${idea}</div>`).join('')}
+                </td>
+                <td class="final-mentor-cell">${team.final_mentor}</td>
+                <td class="final-idea-cell">${team.final_idea}</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function exportFinalListToCSV() {
+    if (!isFinalListHODLoggedIn) return;
+    
+    getTeams().then(teams => {
+        const finalizedTeams = teams.filter(team => 
+            team.mentor_status === 'accepted' && 
+            team.final_mentor && 
+            team.final_idea
+        );
+        
+        if (finalizedTeams.length === 0) {
+            alert('No finalized teams to export.');
+            return;
+        }
+        
+        // Prepare CSV data
+        const csvData = [
+            // Header row
+            ['Name', 'Members', 'Mentor Preferences', 'Project Ideas', 'Final Mentor', 'Final Idea']
+        ];
+        
+        // Data rows
+        finalizedTeams.forEach(team => {
+            // Format members as comma-separated string
+            const memberNames = team.members.map(memberId => {
+                const student = getStudentById(memberId);
+                return student ? student.name : 'Unknown';
+            }).join(', ');
+            
+            // Format mentor preferences as comma-separated string
+            const mentorPreferences = (team.mentor_preferences || []).map(index => 
+                appData.mentors[index] || 'Unknown'
+            ).join(', ');
+            
+            // Format project ideas as comma-separated string
+            const projectIdeas = (team.project_ideas || []).join(', ');
+            
+            csvData.push([
+                team.name,
+                memberNames,
+                mentorPreferences,
+                projectIdeas,
+                team.final_mentor,
+                team.final_idea
+            ]);
+        });
+        
+        // Convert to CSV format
+        const csvContent = csvData.map(row => 
+            row.map(cell => {
+                // Escape quotes and wrap in quotes if cell contains comma
+                const escapedCell = String(cell).replace(/"/g, '""');
+                return `"${escapedCell}"`;
+            }).join(',')
+        ).join('\n');
+        
+        // Add BOM for proper Excel encoding
+        const BOM = '\uFEFF';
+        const finalCsvContent = BOM + csvContent;
+        
+        // Download CSV
+        const blob = new Blob([finalCsvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `final_team_list_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
+}
 
 
 // Update the populateSelects function to also populate leader department
@@ -436,13 +751,23 @@ function closeEditModal() {
 function loadCurrentMembers() {
     const container = document.getElementById('current-members-list');
     const leaderSelect = document.getElementById('new-leader-select');
+    const addMemberBtn = document.querySelector('button[onclick="addNewMember()"]');
     
     leaderSelect.innerHTML = '<option value="">Choose new leader</option>';
+    
+    // Hide/show Add Member button based on member count
+    if (currentEditTeam.members.length >= 4) {
+        addMemberBtn.style.display = 'none';
+    } else {
+        addMemberBtn.style.display = 'inline-block';
+    }
     
     container.innerHTML = currentEditTeam.members.map(memberId => {
         const member = getStudentById(memberId);
         const memberName = member ? member.name : 'Unknown';
         const memberDept = member ? member.department : 'Unknown';
+        const isLeader = memberId === currentEditTeam.leader;
+        const isOnlyMember = currentEditTeam.members.length === 1;
         
         // Add to leader selection
         if (member) {
@@ -453,17 +778,18 @@ function loadCurrentMembers() {
             <div class="current-member">
                 <div class="member-info">
                     <strong>${memberName}</strong> (${memberDept})
-                    ${memberId === currentEditTeam.leader ? '<span class="badge">Leader</span>' : ''}
+                    ${isLeader ? '<span class="badge">Leader</span>' : ''}
                 </div>
                 <div class="member-actions">
-                    ${memberId !== currentEditTeam.leader ? 
+                    ${!isOnlyMember ? 
                         `<button type="button" class="btn btn--danger btn--sm" onclick="removeMember('${memberId}')">Remove</button>` : 
-                        ''}
+                        '<span class="text-muted">Cannot remove only member</span>'}
                 </div>
             </div>
         `;
     }).join('');
 }
+
 
 // Load mentor preferences
 function loadMentorPreferences() {
@@ -530,9 +856,16 @@ function changeLeader() {
 
 // Add new member
 function addNewMember() {
+    // Check if team already has 4 members
+    if (currentEditTeam.members.length >= 4) {
+        showError('edit-error', 'Maximum 4 members allowed per team. Remove a member first to add a new one.');
+        return;
+    }
+    
     document.getElementById('add-member-section').style.display = 'block';
     populateEditDropdowns();
 }
+
 
 // Cancel add member
 function cancelAddMember() {
@@ -555,6 +888,12 @@ async function confirmAddMember() {
         return;
     }
     
+    // Check if student is already in the team
+    if (currentEditTeam.members.includes(studentId)) {
+        showError('edit-error', 'This student is already in the team.');
+        return;
+    }
+    
     // Add member to current team data
     currentEditTeam.members.push(studentId);
     
@@ -565,13 +904,31 @@ async function confirmAddMember() {
     showSuccess('Member added successfully!');
 }
 
+
 // Remove member
 async function removeMember(memberId) {
+    // Check if this is the only member left
+    if (currentEditTeam.members.length <= 1) {
+        showError('edit-error', 'Team must have at least 1 member. Delete the entire team instead.');
+        return;
+    }
+    
+    // Check if trying to remove the leader when they're the only member
+    if (memberId === currentEditTeam.leader && currentEditTeam.members.length === 1) {
+        showError('edit-error', 'Cannot remove the team leader when they are the only member. Delete the entire team instead.');
+        return;
+    }
+    
     if (!confirm('Are you sure you want to remove this member?')) return;
     
-    if (currentEditTeam.members.length <= 3) {
-        showError('edit-error', 'Team must have at least 3 members.');
-        return;
+    // If removing the leader, automatically assign leadership to first remaining member
+    if (memberId === currentEditTeam.leader) {
+        const remainingMembers = currentEditTeam.members.filter(id => id !== memberId);
+        currentEditTeam.leader = remainingMembers[0];
+        
+        if (!confirm(`This member is the team leader. Leadership will be transferred to ${getStudentById(remainingMembers[0])?.name || 'Unknown'}. Continue?`)) {
+            return;
+        }
     }
     
     // Remove member from current team data
@@ -583,74 +940,7 @@ async function removeMember(memberId) {
     showSuccess('Member removed successfully!');
 }
 
-// Handle team edit form submission
-async function handleTeamEditForm(event) {
-    event.preventDefault();
-    hideError('edit-error');
-    
-    try {
-        // Collect form data
-        const teamName = document.getElementById('edit-team-name-input').value.trim();
-        const newLeader = document.getElementById('new-leader-select').value;
-        
-        // Collect mentor preferences (as array of integers)
-        const mentorPreferences = [];
-        for (let i = 1; i <= 4; i++) {
-            const mentorIndex = document.getElementById(`edit-mentor-${i}`).value;
-            if (mentorIndex !== '') {
-                mentorPreferences.push(parseInt(mentorIndex));
-            }
-        }
-        
-        // Collect project ideas as array (matching your schema)
-        const projectIdeas = [
-            document.getElementById('edit-idea-1').value.trim(),
-            document.getElementById('edit-idea-2').value.trim(),
-            document.getElementById('edit-idea-3').value.trim()
-        ];
-        
-        // Validation
-        if (!teamName) {
-            showError('edit-error', 'Team name is required.');
-            return;
-        }
-        
-        if (mentorPreferences.length !== 4) {
-            showError('edit-error', 'All four mentor preferences are required.');
-            return;
-        }
-        
-        if (projectIdeas.some(idea => !idea)) {
-            showError('edit-error', 'All three project ideas are required.');
-            return;
-        }
-        
-        // Update team data (matching your exact schema)
-        const updatedTeam = {
-            name: teamName,
-            leader: newLeader || currentEditTeam.leader,
-            members: currentEditTeam.members,
-            mentor_preferences: mentorPreferences,
-            project_ideas: projectIdeas // This matches your ARRAY column
-        };
-        
-        // Save to Supabase
-        const { error } = await supabaseClient
-            .from('teams')
-            .update(updatedTeam)
-            .eq('team_id', currentEditTeam.team_id);
-        
-        if (error) throw error;
-        
-        alert('Team updated successfully!');
-        closeEditModal();
-        await loadEditTeams();
-        
-    } catch (error) {
-        console.error('Error updating team:', error);
-        showError('edit-error', 'Error updating team: ' + error.message);
-    }
-}
+
 
 
 // Helper function to show success message
@@ -687,14 +977,15 @@ function displayMentorTeams(mentorTeams, mentorIndex) {
         `;
         
         acceptedTeams.forEach(team => {
+            const statusText = team.final_idea ? 'Idea Finalized' : 'Click to Finalize Idea';
             html += `
-                <div class="accepted-team-card">
+                <div class="accepted-team-card" onclick="openFinalizeIdeaModal('${team.team_id}')" style="cursor: pointer;">
                     <div class="accepted-team-info">
                         <h5 class="accepted-team-name">${team.name}</h5>
                         <p class="accepted-team-leader">Leader: ${getStudentById(team.leader)?.name || team.leader}</p>
                     </div>
                     <div class="accepted-team-badge">
-                        <span class="status-badge status-accepted">Accepted</span>
+                        <span class="status-badge ${team.final_idea ? 'status-finalized' : 'status-accepted'}">${statusText}</span>
                     </div>
                 </div>
             `;
@@ -722,6 +1013,8 @@ function displayMentorTeams(mentorTeams, mentorIndex) {
             const preferenceOrder = ['1st', '2nd', '3rd', '4th'];
             const preferenceText = preferenceOrder[currentPreferenceIndex];
             
+            const projectIdeas = team.project_ideas || ['', '', ''];
+            
             html += `
                 <div class="team-card mentor-team-card">
                     <div class="team-card-header">
@@ -740,9 +1033,9 @@ function displayMentorTeams(mentorTeams, mentorIndex) {
                     <div class="project-ideas">
                         <strong>Project Ideas:</strong>
                         <ol>
-                            <li>${team.project_idea_1}</li>
-                            <li>${team.project_idea_2}</li>
-                            <li>${team.project_idea_3}</li>
+                            <li>${projectIdeas[0] || 'Not provided'}</li>
+                            <li>${projectIdeas[1] || 'Not provided'}</li>
+                            <li>${projectIdeas[2] || 'Not provided'}</li>
                         </ol>
                     </div>
                     
@@ -765,6 +1058,95 @@ function displayMentorTeams(mentorTeams, mentorIndex) {
     
     container.innerHTML = html;
 }
+
+// Finalize Idea Modal Functions
+async function openFinalizeIdeaModal(teamId) {
+    const teams = await getTeams();
+    currentFinalizeTeam = teams.find(team => team.team_id === teamId);
+    
+    if (!currentFinalizeTeam) return;
+    
+    newIdeaBuffer = [];
+    
+    // Set team name
+    document.getElementById('finalize-team-name').textContent = currentFinalizeTeam.name;
+    document.getElementById('finalize-team-id').value = teamId;
+    
+    // Render idea options
+    renderIdeaOptions();
+    
+    // Show modal
+    document.getElementById('finalize-idea-modal').style.display = 'flex';
+}
+
+function closeFinalizeIdeaModal() {
+    currentFinalizeTeam = null;
+    newIdeaBuffer = [];
+    document.getElementById('finalize-idea-modal').style.display = 'none';
+    document.getElementById('new-idea-input').value = '';
+    hideError('finalize-error');
+}
+
+function renderIdeaOptions() {
+    const container = document.getElementById('idea-options');
+    const allIdeas = [...(currentFinalizeTeam.project_ideas || []), ...newIdeaBuffer];
+    
+    container.innerHTML = allIdeas.map((idea, index) => `
+        <label class="idea-option">
+            <input type="radio" name="selectedIdea" value="${index}">
+            <span>${idea}</span>
+        </label>
+    `).join('');
+}
+
+function addIdeaOption() {
+    const newIdea = document.getElementById('new-idea-input').value.trim();
+    
+    if (!newIdea) {
+        showError('finalize-error', 'Please enter an idea before adding.');
+        return;
+    }
+    
+    newIdeaBuffer.push(newIdea);
+    document.getElementById('new-idea-input').value = '';
+    renderIdeaOptions();
+}
+
+async function confirmFinalizeIdea() {
+    const selectedRadio = document.querySelector('input[name="selectedIdea"]:checked');
+    
+    if (!selectedRadio) {
+        showError('finalize-error', 'Please select an idea to finalize.');
+        return;
+    }
+    
+    const allIdeas = [...(currentFinalizeTeam.project_ideas || []), ...newIdeaBuffer];
+    const selectedIdea = allIdeas[parseInt(selectedRadio.value)];
+    
+    try {
+        // Update project_ideas array with any new ideas and set final_idea
+        const updatedIdeas = [...(currentFinalizeTeam.project_ideas || []), ...newIdeaBuffer];
+        
+        const { error } = await supabaseClient
+            .from('teams')
+            .update({
+                project_ideas: updatedIdeas,
+                final_idea: selectedIdea
+            })
+            .eq('team_id', currentFinalizeTeam.team_id);
+        
+        if (error) throw error;
+        
+        alert('Final idea saved successfully!');
+        closeFinalizeIdeaModal();
+        await loadMentorTeams();
+        
+    } catch (error) {
+        console.error('Error saving final idea:', error);
+        showError('finalize-error', 'Error saving final idea. Please try again.');
+    }
+}
+
 
 async function acceptTeam(teamId) {
     if (!currentLoggedMentor) return;
@@ -990,10 +1372,19 @@ async function validateStudentSelections() {
         }
     });
     
-    const hasDuplicates = selectedStudents.length !== new Set(selectedStudents).size;
+    // Check for duplicates only if there are multiple selections
+    if (selectedStudents.length > 1) {
+        const hasDuplicates = selectedStudents.length !== new Set(selectedStudents).size;
+        
+        if (hasDuplicates) {
+            showError('team-error', 'Each student can only be selected once. Please choose different students.');
+            return false;
+        }
+    }
     
-    if (hasDuplicates) {
-        showError('team-error', 'Each student can only be selected once. Please choose different students.');
+    // Check if team leader is selected (minimum requirement)
+    if (selectedStudents.length === 0) {
+        showError('team-error', 'Please select at least a team leader.');
         return false;
     }
     
@@ -1009,6 +1400,7 @@ async function validateStudentSelections() {
     
     return true;
 }
+
 
 function validateMentorSelections() {
     const selectedMentors = [];
@@ -1032,46 +1424,6 @@ function validateMentorSelections() {
 }
 
 // ====== FORM HANDLERS ======
-async function handleTeamDetailsForm(event) {
-    event.preventDefault();
-    hideError('team-error');
-    
-    if (!(await validateStudentSelections())) return false;
-    
-    const teamName = document.getElementById('team-name').value.trim();
-    const leaderDepartment = document.getElementById('leader-department').value;
-    const teamLeader = document.getElementById('team-leader').value;
-    const member2 = document.getElementById('member-2').value;
-    const member3 = document.getElementById('member-3').value;
-    const member4 = document.getElementById('member-4').value;
-    
-    // Updated validation to check both leader department and student selection
-    if (!teamName || !leaderDepartment || !teamLeader || !member2 || !member3) {
-        showError('team-error', 'Please fill in all required fields.');
-        return false;
-    }
-    
-    // Check for duplicate team name
-    const existingTeams = await getTeams();
-    if (existingTeams.some(team => team.name.toLowerCase() === teamName.toLowerCase())) {
-        showError('team-error', 'Team name already exists. Please choose a different name.');
-        return false;
-    }
-    
-    const members = [teamLeader, member2, member3];
-    if (member4) members.push(member4);
-    
-    currentTeam = {
-        team_id: `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: teamName,
-        leader: teamLeader, // This will be in proper ID format now
-        members: members
-        // Removed leaderDepartment - no longer needed since it's embedded in the ID
-    };
-    
-    showPage('mentor-selection');
-    return false;
-}
 
 
 
@@ -1638,6 +1990,10 @@ function initializeApp() {
                 });
             }
         });
+    }
+    const finalListHodLoginForm = document.getElementById('final-list-hod-login-form');
+    if (finalListHodLoginForm) {
+        finalListHodLoginForm.addEventListener('submit', handleFinalListHODLogin);
     }
     const hodLoginForm = document.getElementById('hod-login-form');
     if (hodLoginForm) {
