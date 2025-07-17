@@ -123,6 +123,7 @@ const appData = {
 };
 // Add these after your existing global variables
 let isFinalListHODLoggedIn = false;
+let currentMentorEditUser = null;
 let currentFinalizeTeam = null;
 let newIdeaBuffer = [];
 let currentEditTeam = null;
@@ -282,6 +283,296 @@ async function handleTeamEditForm(event) {
         showError('edit-error', 'Error updating team: ' + error.message);
     }
 }
+function backToDashboardWithLogout(panelType) {
+    // Auto-logout based on panel type
+    switch(panelType) {
+        case 'edit-teams':
+            // HOD logout for edit teams
+            if (isHODLoggedIn) {
+                hodLogout();
+            }
+            break;
+            
+        case 'view-final-list':
+            // HOD logout for final list
+            if (isFinalListHODLoggedIn) {
+                finalListHODLogout();
+            }
+            break;
+            
+        case 'mentor-edit':
+            // Mentor logout for mentor edit
+            if (currentMentorEditUser) {
+                mentorEditLogout();
+            }
+            break;
+            
+        case 'mentor-panel':
+            // Mentor logout for mentor panel
+            if (currentLoggedMentor) {
+                mentorLogout();
+            }
+            break;
+    }
+    
+    // Then navigate back to dashboard
+    showPage('admin-dashboard');
+}
+
+function handleMentorEditLogin() {
+    const username = document.getElementById('mentor-edit-username').value.trim();
+    const password = document.getElementById('mentor-edit-password').value.trim();
+    
+    hideError('mentor-edit-login-error');
+    
+    if (!username || !password) {
+        showError('mentor-edit-login-error', 'Please enter both username and password.');
+        return;
+    }
+    
+    // Check if mentor credentials exist
+    const mentorCredentials = appData.mentorCredentials[username];
+    
+    if (!mentorCredentials || password !== mentorCredentials.password) {
+        showError('mentor-edit-login-error', 'Invalid mentor credentials.');
+        return;
+    }
+    
+    // Set current mentor
+    currentMentorEditUser = {
+        username: username,
+        name: mentorCredentials.name,
+        index: parseInt(username.replace('mentor', '')) - 1
+    };
+    
+    // Hide login form and show dashboard
+    const loginForm = document.querySelector('#mentor-edit .mentor-login-form');
+    if (loginForm) {
+        loginForm.style.display = 'none';
+    }
+    
+    const dashboard = document.getElementById('mentor-edit-dashboard');
+    if (dashboard) {
+        dashboard.style.display = 'block';
+    }
+    
+    const nameElement = document.getElementById('mentor-edit-logged-name');
+    if (nameElement) {
+        nameElement.textContent = mentorCredentials.name;
+    }
+    
+    // Load mentor's confirmed teams
+    loadMentorEditTeams();
+}
+
+
+
+// Mentor Edit Logout Handler
+function mentorEditLogout() {
+    currentMentorEditUser = null;
+    
+    // Show login form
+    const loginForm = document.querySelector('#mentor-edit .mentor-login-form');
+    if (loginForm) {
+        loginForm.style.display = 'block';
+    }
+    
+    // Hide dashboard
+    const dashboard = document.getElementById('mentor-edit-dashboard');
+    if (dashboard) {
+        dashboard.style.display = 'none';
+    }
+    
+    // Clear form fields
+    const usernameField = document.getElementById('mentor-edit-username');
+    const passwordField = document.getElementById('mentor-edit-password');
+    
+    if (usernameField) {
+        usernameField.value = '';
+    }
+    
+    if (passwordField) {
+        passwordField.value = '';
+    }
+    
+    // Hide any error messages
+    hideError('mentor-edit-login-error');
+}
+
+
+// Load Mentor's Confirmed Teams
+async function loadMentorEditTeams() {
+    if (!currentMentorEditUser) {
+        console.log('No current mentor user');
+        return;
+    }
+    
+    try {
+        console.log('Loading teams for mentor:', currentMentorEditUser.name); // Debug log
+        
+        const teams = await getTeams();
+        console.log('All teams:', teams); // Debug log
+        
+        // Filter teams confirmed by this mentor
+        const confirmedTeams = teams.filter(team => {
+            const isAccepted = team.mentor_status === 'accepted';
+            const isFinalMentor = team.final_mentor === currentMentorEditUser.name;
+            
+            console.log(`Team ${team.name}: status=${team.mentor_status}, final_mentor=${team.final_mentor}, matches=${isAccepted && isFinalMentor}`);
+            
+            return isAccepted && isFinalMentor;
+        });
+        
+        console.log('Confirmed teams:', confirmedTeams); // Debug log
+        
+        displayMentorEditTeams(confirmedTeams);
+        
+        // Add event listeners to deselect buttons after displaying teams
+        setTimeout(() => {
+            document.querySelectorAll('.deselect-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const teamId = this.getAttribute('data-team-id');
+                    console.log('Deselect button clicked for team:', teamId); // Debug log
+                    deselectTeam(teamId);
+                });
+            });
+        }, 100);
+        
+    } catch (error) {
+        console.error('Error loading mentor edit teams:', error);
+        alert('Error loading teams: ' + error.message);
+    }
+}
+
+
+
+// Display Mentor's Confirmed Teams
+function displayMentorEditTeams(teams) {
+    const container = document.getElementById('mentor-edit-teams-display');
+    
+    if (teams.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>You have no confirmed teams.</p></div>';
+        return;
+    }
+    
+    let html = '<div class="mentor-edit-teams-container">';
+    
+    teams.forEach(team => {
+        const leader = getStudentById(team.leader);
+        const leaderName = leader ? leader.name : 'Unknown';
+        const memberCount = team.members ? team.members.length : 0;
+        const projectIdeas = team.project_ideas || [];
+        
+        html += `
+            <div class="mentor-edit-team-card">
+                <div class="team-card-header">
+                    <h5>${team.name}</h5>
+                    <span class="status-badge status-confirmed">Confirmed</span>
+                </div>
+                
+                <div class="team-details">
+                    <p><strong>Leader:</strong> ${leaderName}</p>
+                    <p><strong>Total Members:</strong> ${memberCount}</p>
+                    <p><strong>Final Idea:</strong> ${team.final_idea || 'Not finalized'}</p>
+                    <p><strong>Registered:</strong> ${new Date(team.registration_date).toLocaleDateString()}</p>
+                </div>
+                
+                <div class="project-ideas">
+                    <strong>Project Ideas:</strong>
+                    <ol>
+                        <li>${projectIdeas[0] || 'Not provided'}</li>
+                        <li>${projectIdeas[1] || 'Not provided'}</li>
+                        <li>${projectIdeas[2] || 'Not provided'}</li>
+                    </ol>
+                </div>
+                
+                <div class="mentor-edit-actions">
+                    <button class="btn btn--danger" onclick="deselectTeam('${team.team_id}')">
+                        Deselect Team
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+
+
+// Deselect Team Function
+async function deselectTeam(teamId) {
+    alert('Deselect function called for team: ' + teamId); // Debug alert
+    console.log('Deselect button clicked for team:', teamId);
+    
+    if (!currentMentorEditUser) {
+        alert('Please login first.');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to deselect this team? It will be forwarded to the next mentor preference.')) {
+        return;
+    }
+    
+    try {
+        // Get fresh team data
+        const teams = await getTeams();
+        const team = teams.find(t => t.team_id === teamId);
+        
+        if (!team) {
+            alert('Team not found.');
+            return;
+        }
+        
+        console.log('Team found:', team);
+        
+        const mentorPreferences = team.mentor_preferences || [];
+        const currentMentorIndex = team.current_mentor_index || 0;
+        
+        // Check if there's a next mentor preference
+        if (currentMentorIndex + 1 < mentorPreferences.length) {
+            // Move to next mentor preference
+            const { error } = await supabaseClient
+                .from('teams')
+                .update({
+                    mentor_status: 'pending',
+                    current_mentor_index: currentMentorIndex + 1,
+                    final_mentor: null,
+                    final_idea: null
+                })
+                .eq('team_id', teamId);
+            
+            if (error) throw error;
+            
+            alert('Team deselected and forwarded to next mentor preference.');
+        } else {
+            // No more mentor preferences, mark as rejected
+            const { error } = await supabaseClient
+                .from('teams')
+                .update({
+                    mentor_status: 'rejected',
+                    final_mentor: null,
+                    final_idea: null
+                })
+                .eq('team_id', teamId);
+            
+            if (error) throw error;
+            
+            alert('Team deselected. No more mentor preferences available.');
+        }
+        
+        // Refresh the display
+        await loadMentorEditTeams();
+        
+    } catch (error) {
+        console.error('Error deselecting team:', error);
+        alert('Error deselecting team: ' + error.message);
+    }
+}
+
+
+
 async function handleFinalListHODLogin(event) {
     event.preventDefault();
     hideError('final-list-hod-login-error');
@@ -392,66 +683,51 @@ function displayFinalList(teams) {
 
 function exportFinalListToCSV() {
     if (!isFinalListHODLoggedIn) return;
-    
+
     getTeams().then(teams => {
-        const finalizedTeams = teams.filter(team => 
-            team.mentor_status === 'accepted' && 
-            team.final_mentor && 
+        const finalizedTeams = teams.filter(team =>
+            team.mentor_status === 'accepted' &&
+            team.final_mentor &&
             team.final_idea
         );
-        
+
         if (finalizedTeams.length === 0) {
             alert('No finalized teams to export.');
             return;
         }
-        
-        // Prepare CSV data
-        const csvData = [
-            // Header row
-            ['Name', 'Members', 'Mentor Preferences', 'Project Ideas', 'Final Mentor', 'Final Idea']
-        ];
-        
-        // Data rows
+
+        // Header row (matches your second screenshot)
+        let csvContent = 'name,members,mentor_preferences,project_ideas,final_mentor,final_idea\n';
+
         finalizedTeams.forEach(team => {
-            // Format members as comma-separated string
-            const memberNames = team.members.map(memberId => {
+            // Members, mentors, ideas as newline-separated strings—each team is only one row.
+            const members = team.members.map(memberId => {
                 const student = getStudentById(memberId);
-                return student ? student.name : 'Unknown';
-            }).join(', ');
-            
-            // Format mentor preferences as comma-separated string
-            const mentorPreferences = (team.mentor_preferences || []).map(index => 
-                appData.mentors[index] || 'Unknown'
-            ).join(', ');
-            
-            // Format project ideas as comma-separated string
-            const projectIdeas = (team.project_ideas || []).join(', ');
-            
-            csvData.push([
-                team.name,
-                memberNames,
-                mentorPreferences,
-                projectIdeas,
-                team.final_mentor,
-                team.final_idea
-            ]);
+                return student ? student.name : '';
+            }).join('\n');
+
+            const mentorPreferences = (team.mentor_preferences || []).map(index =>
+                appData.mentors[index] || ''
+            ).join('\n');
+
+            const projectIdeas = (team.project_ideas || []).join('\n');
+
+            // Always wrap each value in quotes, so Excel handles newlines correctly
+            function q(val) { return `"${(val||'').replace(/"/g, '""')}"`; }
+
+            csvContent += [
+                q(team.name),
+                q(members),
+                q(mentorPreferences),
+                q(projectIdeas),
+                q(team.final_mentor),
+                q(team.final_idea)
+            ].join(',') + '\n';
         });
-        
-        // Convert to CSV format
-        const csvContent = csvData.map(row => 
-            row.map(cell => {
-                // Escape quotes and wrap in quotes if cell contains comma
-                const escapedCell = String(cell).replace(/"/g, '""');
-                return `"${escapedCell}"`;
-            }).join(',')
-        ).join('\n');
-        
-        // Add BOM for proper Excel encoding
+
+        // Add BOM for Excel compatibility
         const BOM = '\uFEFF';
-        const finalCsvContent = BOM + csvContent;
-        
-        // Download CSV
-        const blob = new Blob([finalCsvContent], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
@@ -460,8 +736,15 @@ function exportFinalListToCSV() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     });
 }
+
+
+
+
+
+
 
 
 // Update the populateSelects function to also populate leader department
@@ -587,30 +870,81 @@ function initializeMentorPanel() {
 function mentorLogin() {
     const username = document.getElementById('mentor-username').value.trim();
     const password = document.getElementById('mentor-password').value.trim();
+    
+    hideError('mentor-login-error');
+    
     if (!username || !password) {
-        alert('Please enter both username and password');
+        showError('mentor-login-error', 'Please enter both username and password.');
         return;
     }
-    const creds = appData.mentorCredentials[username];
-    if (creds && creds.password === password) {
-        currentLoggedMentor = { username, name: creds.name };
-        document.getElementById('mentor-dashboard').style.display = 'block';
-        document.getElementById('logged-mentor-name').textContent = creds.name;
-        document.querySelector('.mentor-login-form').style.display = 'none';
-        loadMentorTeams();
-        document.getElementById('mentor-username').value = '';
-        document.getElementById('mentor-password').value = '';
-    } else {
-        alert('Invalid username or password');
+    
+    // Check if mentor credentials exist
+    const mentorCredentials = appData.mentorCredentials[username];
+    
+    if (!mentorCredentials || password !== mentorCredentials.password) {
+        showError('mentor-login-error', 'Invalid mentor credentials.');
+        return;
     }
+    
+    // Set current mentor
+    currentLoggedMentor = {
+        username: username,
+        name: mentorCredentials.name,
+        index: parseInt(username.replace('mentor', '')) - 1
+    };
+    
+    // Hide login form and show dashboard
+    const loginForm = document.querySelector('#mentor-panel .mentor-login-form');
+    if (loginForm) {
+        loginForm.style.display = 'none';
+    }
+    
+    const dashboard = document.getElementById('mentor-dashboard');
+    if (dashboard) {
+        dashboard.style.display = 'block';
+    }
+    
+    const nameElement = document.getElementById('logged-mentor-name');
+    if (nameElement) {
+        nameElement.textContent = mentorCredentials.name;
+    }
+    
+    // Load mentor's teams
+    loadMentorTeams();
 }
+
 
 function mentorLogout() {
     currentLoggedMentor = null;
-    document.getElementById('mentor-dashboard').style.display = 'none';
-    document.querySelector('.mentor-login-form').style.display = 'block';
-    document.getElementById('mentor-teams-display').innerHTML = '';
+    
+    // Show login form
+    const loginForm = document.querySelector('#mentor-panel .mentor-login-form');
+    if (loginForm) {
+        loginForm.style.display = 'block';
+    }
+    
+    // Hide dashboard
+    const dashboard = document.getElementById('mentor-dashboard');
+    if (dashboard) {
+        dashboard.style.display = 'none';
+    }
+    
+    // Clear form fields
+    const usernameField = document.getElementById('mentor-username');
+    const passwordField = document.getElementById('mentor-password');
+    
+    if (usernameField) {
+        usernameField.value = '';
+    }
+    
+    if (passwordField) {
+        passwordField.value = '';
+    }
+    
+    // Hide any error messages
+    hideError('mentor-login-error');
 }
+
 
 async function loadMentorTeams() {
     if (!currentLoggedMentor) return;
@@ -1825,18 +2159,6 @@ function selectTeam(mentorIndex, teamId) {
     }
 }
 
-function deselectTeam(mentorIndex, teamId) {
-    if (selectedMentorTeams[mentorIndex]) {
-        selectedMentorTeams[mentorIndex] = selectedMentorTeams[mentorIndex].filter(id => id !== teamId);
-        displayMentorPreferences(mentorIndex);
-        
-        // Save to localStorage for persistence
-        localStorage.setItem('mentorSelections', JSON.stringify(selectedMentorTeams));
-        
-        alert('Team removed successfully!');
-    }
-}
-
 function getOrdinalSuffix(num) {
     const suffixes = ['th', 'st', 'nd', 'rd'];
     const v = num % 100;
@@ -1991,6 +2313,23 @@ function initializeApp() {
             }
         });
     }
+    const mentorEditLoginBtn = document.getElementById('mentor-edit-login-btn');
+    const mentorEditLogoutBtn = document.getElementById('mentor-edit-logout-btn');
+    const mentorEditPasswordField = document.getElementById('mentor-edit-password');
+
+    if (mentorEditLoginBtn) {
+        mentorEditLoginBtn.addEventListener('click', handleMentorEditLogin);
+    }
+
+    if (mentorEditLogoutBtn) {
+        mentorEditLogoutBtn.addEventListener('click', mentorEditLogout);
+    }
+
+    if (mentorEditPasswordField) {
+        mentorEditPasswordField.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') handleMentorEditLogin();
+        });
+    }
     const finalListHodLoginForm = document.getElementById('final-list-hod-login-form');
     if (finalListHodLoginForm) {
         finalListHodLoginForm.addEventListener('submit', handleFinalListHODLogin);
@@ -2086,3 +2425,28 @@ window.handleMentorSelection = handleMentorSelection;
 window.selectTeam = selectTeam;
 window.deselectTeam = deselectTeam;
 window.exportMentorSelectionsToCSV = exportMentorSelectionsToCSV;
+// Make sure deselectTeam is globally available
+window.deselectTeam = deselectTeam;
+window.handleMentorEditLogin = handleMentorEditLogin;
+window.mentorEditLogout = mentorEditLogout;
+window.openFinalizeIdeaModal = openFinalizeIdeaModal;
+window.closeFinalizeIdeaModal = closeFinalizeIdeaModal;
+window.addIdeaOption = addIdeaOption;
+window.confirmFinalizeIdea = confirmFinalizeIdea;
+window.acceptTeam = acceptTeam;
+window.rejectTeam = rejectTeam;
+window.mentorLogin = mentorLogin;
+window.mentorLogout = mentorLogout;
+window.handleHODLogin = handleHODLogin;
+window.hodLogout = hodLogout;
+window.openEditModal = openEditModal;
+window.closeEditModal = closeEditModal;
+window.changeLeader = changeLeader;
+window.addNewMember = addNewMember;
+window.cancelAddMember = cancelAddMember;
+window.confirmAddMember = confirmAddMember;
+window.removeMember = removeMember;
+window.exportFinalListToCSV = exportFinalListToCSV;
+window.finalListHODLogout = finalListHODLogout;
+// Add this line with your other window assignments
+window.backToDashboardWithLogout = backToDashboardWithLogout;
